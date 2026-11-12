@@ -440,5 +440,12 @@ def results(state: State) -> Page:
         content.append(Div(bold(change_color(term_name, BAD_COLOR)), times_text))
     return Page(state, content)
 
+set_site_information(
+    author="Christopher Detrick",
+    description="A study tool that lets you import vocabulary terms and take a shuffled multiple-choice quiz.",
+    sources=["Claude"],
+    planning=[],
+    links=[]
+)
 
 start_server(State([], [], 0, 0, "", [], "", {}))
