@@ -1,4 +1,4 @@
-# drafter-deployment-template-v1
+# Quiz Maker
 Author: Christopher Detrick
 
 Description:
