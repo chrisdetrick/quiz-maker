@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import random
+from typing import Any
 from drafter import *
 
 # Global constants (allowed)
@@ -120,7 +121,7 @@ def make_message_content(message: str) -> list:
 
 
 # helper function
-def make_title(text: str, level: int = 1) -> Header:
+def make_title(text: str, level: int = 1) -> Any:
     """Return a Header whose text is colored with the site's title color."""
     return change_color(Header(text, level), TITLE_COLOR)
 
@@ -276,7 +277,7 @@ def export_terms(state: State) -> Page:
 @route
 def remove_term(state: State) -> Page:
     """Remove Term page: Cancel / Remove All buttons at the top, then each term with its own Remove button."""
-    content = [make_title("Remove Term", 1)]
+    content: list[Any] = [make_title("Remove Term", 1)]
     if len(state.user_terms) == 0:
         content.append(Div(Button("Home", home)))
         content.append(HorizontalRule())
@@ -288,10 +289,10 @@ def remove_term(state: State) -> Page:
 
     # Loop over the Term instances; each Remove button comes BEFORE its term and passes the
     # term's position to delete_term.
-    # Advanced technique: Argument("index", index) tells Drafter to give delete_term a parameter
+    # Advanced technique: the dictionary {"index": index} tells Drafter to give delete_term a parameter
     # named 'index' with this value when the button is clicked.
     for index, term in enumerate(state.user_terms):
-        content.append(Div(Button("Remove", delete_term, [Argument("index", index)]),
+        content.append(Div(Button("Remove", delete_term, {"index": index}),
                            "  " + str(index + 1) + ". ", bold(term.term), " - " + term.definition))
     return Page(state, content)
 
@@ -365,7 +366,7 @@ def quiz(state: State, choice: str = "") -> Page:
             else:
                 state.missed[current_term.term] = 1
 
-    content = [Div(Button("Quit", home))]
+    content: list[Any] = [Div(Button("Quit", home))]
     if is_retry:
         content.append(make_title("Question " + str(state.current_question + 1) + " (retry)", 2))
     else:
@@ -377,7 +378,7 @@ def quiz(state: State, choice: str = "") -> Page:
     if state.feedback == "":
         # one button per line
         for option in state.choices:
-            content.append(Div(Button(option, quiz, [Argument("choice", option)])))
+            content.append(Div(Button(option, quiz, {"choice": option})))
     else:
         if state.feedback == CORRECT_FEEDBACK:
             content.append(Div(bold(change_color(state.feedback, GOOD_COLOR))))
@@ -440,12 +441,5 @@ def results(state: State) -> Page:
         content.append(Div(bold(change_color(term_name, BAD_COLOR)), times_text))
     return Page(state, content)
 
-set_site_information(
-    author="Christopher Detrick",
-    description="A study tool that lets you import vocabulary terms and take a shuffled multiple-choice quiz.",
-    sources=["Claude"],
-    planning=[],
-    links=[]
-)
 
 start_server(State([], [], 0, 0, "", [], "", {}))
