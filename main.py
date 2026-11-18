@@ -15,6 +15,12 @@ NUMBER_OF_CHOICES = 4           # answer buttons shown per question
 
 set_website_title("Quiz Maker")
 
+# Advanced technique (not covered in the course): the save_edits and delete_term routes below take
+# **edited_fields.
+# The Edit Terms page has one pair of text boxes per term, so the number of text boxes changes as terms
+# are added or removed. A parameter written as **name collects any number of keyword arguments into a
+# dictionary, which lets one route receive a different number of form fields each time.
+
 # Advanced technique (not covered in the course): every Button below is given the NAME of its
 # route as a string (for example Button("Home", "home")) instead of the route function itself.
 # This lets a button point to a route that is defined LATER in the file, so that each route can be
@@ -33,7 +39,7 @@ class State:
     """
     Holds everything the website needs to remember between pages.
 
-    user_terms: every Term the user has added or imported.
+    user_terms: every Term the user has added or imported (no two have the same term or definition).
     quiz_terms: the shuffled Terms for the current quiz (missed Terms are appended to the end).
     current_question: index in quiz_terms of the question being answered.
     score: number of questions answered correctly on the first try in the current quiz.
@@ -91,6 +97,20 @@ assert_equal(term_exists(make_test_terms(), "cat"), True)
 assert_equal(term_exists(make_test_terms(), "CAT"), True)
 assert_equal(term_exists(make_test_terms(), "horse"), False)
 assert_equal(term_exists([], "cat"), False)
+
+
+def definition_exists(terms: list[Term], definition: str) -> bool:
+    """Return True if a Term with this definition (ignoring upper/lower case) is already in terms."""
+    for existing_term in terms:
+        if existing_term.definition.lower() == definition.lower():
+            return True
+    return False
+
+
+assert_equal(definition_exists(make_test_terms(), "a small pet"), True)
+assert_equal(definition_exists(make_test_terms(), "A SMALL PET"), True)
+assert_equal(definition_exists(make_test_terms(), "an animal"), False)
+assert_equal(definition_exists([], "a small pet"), False)
 
 
 def is_term_format_valid(term_input: str) -> bool:
@@ -187,28 +207,105 @@ assert_equal(taken_message(""), "")
 assert_equal(message_left_after_take("Hello"), "")
 
 
-def find_term_error(term_name: str, definition: str, terms: list[Term]) -> str:
+def find_term_problem(term_name: str, definition: str, terms: list[Term]) -> str:
     """
-    Return an error message if this term/definition can't be added to terms, or "" if it is fine.
+    Return a short description of why this term/definition can't be added to terms, or "" if it is fine.
 
     A term can't be added if either part is empty, if either part contains ' - ' (that would
-    break import/export), or if the term name already exists.
+    break import/export), if the term name already exists, or if the definition already exists.
     """
     if term_name == "" or definition == "":
-        return "Error: the term and the definition cannot be empty. No term has been added."
+        return "the term and the definition cannot be empty"
     # Reuses is_term_format_valid so a term/definition can't contain ' - '
     if not is_term_format_valid(term_name + TERM_SEPARATOR + definition):
-        return "Error: the term and definition cannot contain ' - '. No term has been added."
+        return "the term and definition cannot contain ' - '"
     if term_exists(terms, term_name):
-        return "Error: that term has already been added. No term has been added."
+        return "that term already exists"
+    if definition_exists(terms, definition):
+        return "that definition is already used by another term"
     return ""
 
 
-assert_equal(find_term_error("horse", "an animal", make_test_terms()), "")
-assert_equal(find_term_error("", "an animal", make_test_terms()).startswith("Error"), True)
-assert_equal(find_term_error("horse", "", make_test_terms()).startswith("Error"), True)
-assert_equal(find_term_error("a - b", "an animal", make_test_terms()).startswith("Error"), True)
-assert_equal(find_term_error("cat", "another one", make_test_terms()).startswith("Error"), True)
+assert_equal(find_term_problem("horse", "an animal", make_test_terms()), "")
+assert_equal(find_term_problem("", "an animal", make_test_terms()),
+             "the term and the definition cannot be empty")
+assert_equal(find_term_problem("horse", "", make_test_terms()),
+             "the term and the definition cannot be empty")
+assert_equal(find_term_problem("a - b", "an animal", make_test_terms()),
+             "the term and definition cannot contain ' - '")
+assert_equal(find_term_problem("cat", "another one", make_test_terms()), "that term already exists")
+assert_equal(find_term_problem("horse", "a small pet", make_test_terms()),
+             "that definition is already used by another term")
+
+
+def make_field_name(field_type: str, term_index: int) -> str:
+    """Return the name of a text box on the Edit Terms page, like 'term_0' or 'definition_2'."""
+    return field_type + "_" + str(term_index)
+
+
+assert_equal(make_field_name("term", 0), "term_0")
+assert_equal(make_field_name("definition", 12), "definition_12")
+
+
+def read_edited_terms(terms: list[Term], edited_fields: dict[str, str]) -> list[Term]:
+    """
+    Return a new list of Terms with the edited text boxes applied to terms.
+
+    edited_fields maps text box names (see make_field_name) to the text in them. A Term whose
+    text boxes are missing from edited_fields keeps its old value. Surrounding spaces are removed.
+    """
+    edited_terms = []
+    for term_index, term in enumerate(terms):
+        term_name = term.term
+        definition = term.definition
+        term_field = make_field_name("term", term_index)
+        definition_field = make_field_name("definition", term_index)
+        if term_field in edited_fields:
+            term_name = edited_fields[term_field].strip()
+        if definition_field in edited_fields:
+            definition = edited_fields[definition_field].strip()
+        edited_terms.append(Term(term_name, definition))
+    return edited_terms
+
+
+assert_equal(read_edited_terms(make_test_terms(), {}), make_test_terms())
+assert_equal(read_edited_terms(make_test_terms(), {"term_1": "  hound ", "definition_3": "has wings"}),
+             [Term("cat", "a small pet"), Term("hound", "a loyal pet"),
+              Term("fish", "lives in water"), Term("bird", "has wings")])
+assert_equal(read_edited_terms([], {"term_0": "ignored"}), [])
+
+
+def find_edit_error(edited_terms: list[Term], skipped_index: int = -1) -> str:
+    """
+    Return an error message for the first Term in edited_terms that is not valid, or "" if all are fine.
+
+    Each Term is checked against the valid Terms before it, so no two Terms can share a term or a
+    definition. The Term at skipped_index (a Term that is about to be removed) is not checked and is
+    not compared with the others. The default of -1 means no Term is skipped.
+    """
+    checked_terms: list[Term] = []
+    for term_index, term in enumerate(edited_terms):
+        if term_index == skipped_index:
+            continue
+        problem = find_term_problem(term.term, term.definition, checked_terms)
+        if problem != "":
+            return "Error in term " + str(term_index + 1) + ": " + problem + ". No changes were made."
+        checked_terms.append(term)
+    return ""
+
+
+assert_equal(find_edit_error(make_test_terms()), "")
+assert_equal(find_edit_error([]), "")
+assert_equal(find_edit_error([Term("cat", "a small pet"), Term("", "x")]),
+             "Error in term 2: the term and the definition cannot be empty. No changes were made.")
+assert_equal(find_edit_error([Term("cat", "a small pet"), Term("CAT", "x")]),
+             "Error in term 2: that term already exists. No changes were made.")
+assert_equal(find_edit_error([Term("cat", "a small pet"), Term("dog", "A small pet")]),
+             "Error in term 2: that definition is already used by another term. No changes were made.")
+# the skipped Term is ignored, and the other Terms keep their original numbers
+assert_equal(find_edit_error([Term("cat", "a small pet"), Term("", ""), Term("fish", "A SMALL PET")], 1),
+             "Error in term 3: that definition is already used by another term. No changes were made.")
+assert_equal(find_edit_error([Term("cat", "a small pet"), Term("", "")], 1), "")
 
 
 def parse_term_line(line: str) -> Optional[Term]:
@@ -238,7 +335,9 @@ assert_equal(parse_term_line(" - missing term"), None)
 
 def import_lines(import_text: str, terms: list[Term]) -> tuple[int, int]:
     """
-    Add every valid, non-duplicate 'Term - Definition' line in import_text to terms.
+    Add every valid 'Term - Definition' line in import_text to terms.
+
+    Lines are skipped if they are badly formatted or if their term or definition already exists.
 
     Blank lines are ignored. Return (number of terms added, number of lines skipped).
     """
@@ -249,7 +348,7 @@ def import_lines(import_text: str, terms: list[Term]) -> tuple[int, int]:
         if line.strip() == "":
             continue
         parsed_term = parse_term_line(line)
-        if parsed_term is None or term_exists(terms, parsed_term.term):
+        if parsed_term is None or find_term_problem(parsed_term.term, parsed_term.definition, terms) != "":
             skipped_count += 1
         else:
             terms.append(parsed_term)
@@ -266,6 +365,7 @@ def terms_after_import(import_text: str, terms: list[Term]) -> list[Term]:
 assert_equal(import_lines("dog - a loyal pet\n\nbad line\ncat - duplicate\nfish - lives in water",
                           [Term("cat", "a small pet")]), (2, 2))
 assert_equal(import_lines("", []), (0, 0))
+assert_equal(import_lines("tiger - a small pet\nlion - a big cat", [Term("cat", "a small pet")]), (1, 1))
 assert_equal(terms_after_import("dog - a loyal pet\n\nbad line\ncat - duplicate\nfish - lives in water",
                                 [Term("cat", "a small pet")]),
              [Term("cat", "a small pet"), Term("dog", "a loyal pet"), Term("fish", "lives in water")])
@@ -426,14 +526,17 @@ def make_term_line(term_number: int, term: Term) -> Any:
     return Div(str(term_number) + ". ", bold(term.term), TERM_SEPARATOR + term.definition)
 
 
-def make_removal_row(term_index: int, term: Term) -> Any:
+def make_edit_row(term_index: int, term: Term) -> Any:
     """
-    Return a Div with a Remove button (placed before the term) for the Term at term_index.
+    Return a Div with a Remove button, the term number, and editable text boxes for the term and definition.
 
     Can't be unit tested: it only builds Drafter components, so it is checked by running the site.
     """
     return Div(Button("Remove", "delete_term", {"term_index": term_index}),
-               "  " + str(term_index + 1) + ". ", bold(term.term), TERM_SEPARATOR + term.definition)
+               "  " + str(term_index + 1) + ". ",
+               TextBox(make_field_name("term", term_index), term.term),
+               " : ",
+               TextBox(make_field_name("definition", term_index), term.definition))
 
 
 def make_choice_buttons(answer_choices: list[str]) -> list[Any]:
@@ -488,9 +591,9 @@ def home(state: State) -> Page:
     page_content: list[Any] = [
         make_title("Quiz Maker", 1),
         Div(Button("Add Term", "add_term"),
+            Button("Edit Terms", "edit_terms"),
             Button("Import Terms", "import_terms"),
             Button("Export Terms", "export_terms"),
-            Button("Remove Term", "remove_term"),
             Button("Take Quiz", "start_quiz")),
         HorizontalRule()
     ]
@@ -536,6 +639,8 @@ def add_term(state: State) -> Page:
         HorizontalRule()
     ]
     page_content.extend(make_message_content(take_message(state)))
+    page_content.append(Div("Enter a term and its definition, then press Add Term to add it to your list."))
+    page_content.append(LineBreak())
     page_content.append(Div(bold("Term:")))
     page_content.append(Div(TextBox("new_term", "")))
     page_content.append(Div(bold("Definition:")))
@@ -564,9 +669,9 @@ def save_term(state: State, new_term: str, new_definition: str) -> Page:
     """
     term_name = new_term.strip()
     definition = new_definition.strip()
-    error_message = find_term_error(term_name, definition, state.user_terms)
-    if error_message != "":
-        state.message = error_message
+    problem = find_term_problem(term_name, definition, state.user_terms)
+    if problem != "":
+        state.message = "Error: " + problem + ". No term has been added."
         return add_term(state)
 
     state.user_terms.append(Term(term_name, definition))
@@ -578,6 +683,8 @@ assert_equal(save_term(make_test_state([]), "  cat ", " a small pet ").state.use
              [Term("cat", "a small pet")])
 assert_equal(save_term(make_test_state([]), "", "a small pet").state.user_terms, [])
 assert_equal(save_term(make_test_state(make_test_terms()), "cat", "duplicate").state.user_terms,
+             make_test_terms())
+assert_equal(save_term(make_test_state(make_test_terms()), "horse", "a small pet").state.user_terms,
              make_test_terms())
 
 
@@ -644,39 +751,99 @@ assert_equal(export_terms(make_test_state([])).state, make_test_state([]))
 
 
 @route
-def remove_term(state: State) -> Page:
-    """Remove Term page: Cancel / Remove All buttons at the top, then each term with its own Remove button."""
-    page_content: list[Any] = [make_title("Remove Term", 1)]
+def edit_terms(state: State) -> Page:
+    """
+    Edit Terms page: each term and definition is in its own text box, next to a Remove button.
+
+    Cancel, Save Changes and Remove All buttons are at the top.
+    """
+    page_content: list[Any] = [make_title("Edit Terms", 1)]
     if len(state.user_terms) == 0:
         page_content.append(Div(Button("Home", "home")))
         page_content.append(HorizontalRule())
-        page_content.append(Div(italic("You need to add a term before you can remove one!")))
+        page_content.append(Div(italic("You need to add a term before you can edit one!")))
         return Page(state, page_content)
 
-    page_content.append(Div(Button("Cancel", "home"), Button("Remove All", "remove_all")))
+    page_content.append(Div(Button("Cancel", "home"), Button("Save Changes", "save_edits"),
+                            Button("Remove All", "remove_all")))
     page_content.append(HorizontalRule())
+    page_content.extend(make_message_content(take_message(state)))
+    page_content.append(Div("Change a term or definition, then press Save Changes. "
+                            "Pressing Remove deletes that term and also saves your other changes."))
+    page_content.append(LineBreak())
 
-    # Loop over the Term instances; each Remove button comes BEFORE its term.
-    # Advanced technique: in make_removal_row, the dictionary {"term_index": term_index} tells Drafter
+    # Loop over the Term instances; each Remove button comes BEFORE its text boxes.
+    # Advanced technique: in make_edit_row, the dictionary {"term_index": term_index} tells Drafter
     # to give delete_term a parameter named 'term_index' with this value when the button is clicked.
     for term_index, term in enumerate(state.user_terms):
-        page_content.append(make_removal_row(term_index, term))
+        page_content.append(make_edit_row(term_index, term))
     return Page(state, page_content)
 
 
-assert_equal(remove_term(make_test_state(make_test_terms())).state, make_test_state(make_test_terms()))
-assert_equal(remove_term(make_test_state([])).state, make_test_state([]))
+assert_equal(edit_terms(make_test_state(make_test_terms())).state, make_test_state(make_test_terms()))
+assert_equal(edit_terms(make_test_state([])).state, make_test_state([]))
 
 
 @route
-def delete_term(state: State, term_index: int) -> Page:
-    """Remove the Term at position `term_index` from state.user_terms, then return to the home page."""
-    if 0 <= term_index < len(state.user_terms):
-        removed_term = state.user_terms[term_index].term
-        state.user_terms.pop(term_index)
-        state.message = removed_term + " successfully removed."
-    else:
+def save_edits(state: State, **edited_fields: str) -> Page:
+    """
+    Save the changes made in the Edit Terms text boxes, then show the home page.
+
+    edited_fields holds the text of every text box on the page (see make_field_name). If any edited
+    Term is invalid (empty, or a repeated term or definition), nothing is saved and the Edit Terms
+    page is shown again with an error message.
+    """
+    edited_terms = read_edited_terms(state.user_terms, edited_fields)
+    error_message = find_edit_error(edited_terms)
+    if error_message != "":
+        state.message = error_message
+        return edit_terms(state)
+
+    state.user_terms = edited_terms
+    state.message = "Changes saved."
+    return home(state)
+
+
+assert_equal(save_edits(make_test_state(make_test_terms())).state.user_terms, make_test_terms())
+assert_equal(save_edits(make_test_state(make_test_terms()), term_1="hound", definition_1="a loyal friend",
+                        term_0="cat", definition_0="a small pet").state.user_terms,
+             [Term("cat", "a small pet"), Term("hound", "a loyal friend"),
+              Term("fish", "lives in water"), Term("bird", "can fly")])
+# a repeated definition, a repeated term and an empty term are all rejected (nothing changes)
+assert_equal(save_edits(make_test_state(make_test_terms()), definition_1="a small pet").state.user_terms,
+             make_test_terms())
+assert_equal(save_edits(make_test_state(make_test_terms()), term_1="Cat").state.user_terms,
+             make_test_terms())
+assert_equal(save_edits(make_test_state(make_test_terms()), term_2="  ").state.user_terms,
+             make_test_terms())
+
+
+@route
+def delete_term(state: State, term_index: int, **edited_fields: str) -> Page:
+    """
+    Remove the Term at position `term_index`, saving any changes made to the other Terms, then show home.
+
+    edited_fields holds the text of every text box on the Edit Terms page (see make_field_name).
+    If one of the other edited Terms is invalid, nothing is removed or saved and the Edit Terms
+    page is shown again with an error message. Edits to the Term being removed are ignored.
+    """
+    if not 0 <= term_index < len(state.user_terms):
         state.message = "Error: invalid input. No term has been removed."
+        return home(state)
+
+    edited_terms = read_edited_terms(state.user_terms, edited_fields)
+    error_message = find_edit_error(edited_terms, term_index)
+    if error_message != "":
+        state.message = error_message
+        return edit_terms(state)
+
+    removed_term = state.user_terms[term_index].term
+    remaining_old_terms = state.user_terms[:term_index] + state.user_terms[term_index + 1:]
+    edited_terms.pop(term_index)
+    state.message = removed_term + " successfully removed."
+    if edited_terms != remaining_old_terms:
+        state.message = state.message + " Your other changes were saved."
+    state.user_terms = edited_terms
     return home(state)
 
 
@@ -684,6 +851,19 @@ assert_equal(delete_term(make_test_state(make_test_terms()), 1).state.user_terms
              [Term("cat", "a small pet"), Term("fish", "lives in water"), Term("bird", "can fly")])
 assert_equal(delete_term(make_test_state(make_test_terms()), 10).state.user_terms, make_test_terms())
 assert_equal(delete_term(make_test_state(make_test_terms()), -1).state.user_terms, make_test_terms())
+# other edits are saved when a term is removed
+assert_equal(delete_term(make_test_state(make_test_terms()), 1, term_0="kitten",
+                         definition_0="a young cat").state.user_terms,
+             [Term("kitten", "a young cat"), Term("fish", "lives in water"), Term("bird", "can fly")])
+# edits to the removed term are ignored, even if they would be invalid
+assert_equal(delete_term(make_test_state(make_test_terms()), 1, term_1="").state.user_terms,
+             [Term("cat", "a small pet"), Term("fish", "lives in water"), Term("bird", "can fly")])
+# an edited term can reuse the name of the term that is being removed
+assert_equal(delete_term(make_test_state(make_test_terms()), 1, term_0="dog").state.user_terms,
+             [Term("dog", "a small pet"), Term("fish", "lives in water"), Term("bird", "can fly")])
+# an invalid edit to another term cancels the removal (nothing changes)
+assert_equal(delete_term(make_test_state(make_test_terms()), 1, definition_0="lives in water").state.user_terms,
+             make_test_terms())
 
 
 @route
@@ -853,9 +1033,9 @@ assert_equal(len(next_question(make_quiz_state(3, make_test_terms(), "Incorrect!
 set_site_information(
     author="Christopher Detrick",
     description="A study tool that lets you import vocabulary terms and take a shuffled multiple-choice quiz.",
-    sources=["Claude"],
-    planning=[],
-    links=[]
+    sources=["CS1 Final Project (Quiz Maker) Conversation with Claude.pdf"],
+    planning=["CD - CS1 Final Project 0_ Pick a Problem.pdf", "CD - CS1 Final Project 1_ Design.pdf"],
+    links=["https://github.com/chrisdetrick/quiz-maker"]
 )
 
 start_server(State([], [], 0, 0, "", [], "", {}))
